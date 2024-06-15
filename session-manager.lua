@@ -148,17 +148,6 @@ local function recreate_workspace(window, workspace_data)
         break
       end
 
-      -- Restore TTY for Neovim on Linux
-      -- NOTE: cwd is handled differently on windows. maybe extend functionality for windows later
-      -- This could probably be handled better in general
-      if not (os == "x86_64-pc-windows-msvc") then
-        if not (os == "x86_64-pc-windows-msvc") and pane_data.tty:sub(- #"/bin/nvim") == "/bin/nvim" then
-          new_pane:send_text(pane_data.tty .. " ." .. "\n")
-        else
-          -- TODO - With running npm commands (e.g a running web client) this seems to execute Node, without the arguments
-          new_pane:send_text(pane_data.tty .. "\n")
-        end
-      end
     end
   end
 

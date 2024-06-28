@@ -18,12 +18,15 @@ local function retrieve_workspace_data(window)
     tabs = {}
   }
 
+  active_tab_id = window:active_tab():tab_id()
+
   -- Iterate over tabs in the current window
   for _, tab in ipairs(window:mux_window():tabs()) do
     local tab_data = {
       tab_id = tostring(tab:tab_id()),
       tab_title = tostring(tab:get_title()),
-      panes = {}
+      active_tab = (tab:tab_id() == active_tab_id), 
+      panes = {},
     }
 
     -- Iterate over panes in the current tab
@@ -110,8 +113,9 @@ local function recreate_workspace(window, workspace_data)
     wezterm.log_info("Active program detected. Skipping exit command for initial pane.")
   end
 
+  local active_tab_index = nil
   -- Recreate tabs and panes from the saved state
-  for _, tab_data in ipairs(workspace_data.tabs) do
+  for index , tab_data in ipairs(workspace_data.tabs) do
     local cwd_uri = tab_data.panes[1].cwd
     local cwd_path = extract_path_from_dir(cwd_uri)
 
@@ -119,6 +123,10 @@ local function recreate_workspace(window, workspace_data)
     if not new_tab then
       wezterm.log_info("Failed to create a new tab.")
       break
+    end
+
+    if tab_data.active_tab then
+      active_tab_index = index - 1
     end
 
     -- Activate the new tab before creating panes
@@ -149,6 +157,9 @@ local function recreate_workspace(window, workspace_data)
       end
 
     end
+  end
+  if active_tab_index then
+    window:perform_action(wezterm.action.ActivateTab(active_tab_index), window:active_pane())
   end
 
   wezterm.log_info("Workspace recreated with new tabs and panes based on saved state.")

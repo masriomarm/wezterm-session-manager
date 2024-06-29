@@ -1,6 +1,7 @@
 local wezterm = require("wezterm")
 local session_manager = {}
 local os = wezterm.target_triple
+local save_dir = wezterm.home_dir .. "/.config/wezterm/"
 
 --- Displays a notification in WezTerm.
 -- @param message string: The notification message to be displayed.
@@ -189,8 +190,8 @@ end
 --- Loads the saved json file matching the current workspace.
 function session_manager.restore_state(window)
   local workspace_name = window:active_workspace()
-  local file_path = wezterm.home_dir ..
-      "/.config/wezterm/wezterm-session-manager/wezterm_state_" .. workspace_name .. ".json"
+  local file_name = "wezterm_state_" .. workspace_name .. ".json"
+  local file_path = save_dir .. file_name
 
   local workspace_data = load_from_json_file(file_path)
   if not workspace_data then
@@ -222,7 +223,8 @@ function session_manager.save_state(window)
   local data = retrieve_workspace_data(window)
 
   -- Construct the file path based on the workspace name
-  local file_path = wezterm.home_dir .. "/.config/wezterm/wezterm-session-manager/wezterm_state_" .. data.name .. ".json"
+  local file_name = "wezterm_state_" .. data.name .. ".json"
+  local file_path = save_dir .. file_name
 
   -- Save the workspace data to a JSON file and display the appropriate notification
   local status = 'fail'

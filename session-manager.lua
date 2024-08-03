@@ -206,7 +206,7 @@ function session_manager.restore_state(window)
   end
 
   local status = 'success'
-  if ~recreate_workspace(window, workspace_data) then
+  if recreate_workspace(window, workspace_data) ~= true then
     status = 'fail'
     window:toast_notification('WezTerm', 'Workspace "'.. workspace_name .. '" restore ' .. status, nil, 4000)
   end
@@ -231,11 +231,11 @@ function session_manager.save_state(window)
   local file_path = save_dir .. file_name
 
   -- Save the workspace data to a JSON file and display the appropriate notification
-  local status = 'success'
-  if ~save_to_json_file(data, file_path) then
-    status = 'fail'
-    window:toast_notification('WezTerm Session Manager', 'Workspace "' .. data.name .. '" save ' .. status, nil, 4000)
+  local status = 'fail'
+  if save_to_json_file(data, file_path) then
+    status = 'success'
   end
+  window:toast_notification('WezTerm Session Manager', 'Workspace "' .. data.name .. '" save ' .. status, nil, 4000)
 end
 
 return session_manager

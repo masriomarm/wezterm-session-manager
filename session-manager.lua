@@ -108,16 +108,15 @@ local function recreate_workspace(window, workspace_data)
     return
   end
 
-  local initial_pane = window:active_pane()
-  local foreground_process = initial_pane:get_foreground_process_name()
-
   -- Check if the foreground process is a shell
-  if foreground_process:find("sh") or foreground_process:find("cmd.exe") or foreground_process:find("powershell.exe") or foreground_process:find("pwsh.exe") or foreground_process:find("nu") then
-    -- Safe to close
-    initial_pane:send_text("exit\r")
-  else
-    wezterm.log_info("Active program detected. Skipping exit command for initial pane.")
-  end
+  -- local initial_pane = window:active_pane()
+  -- local foreground_process = initial_pane:get_foreground_process_name()
+  -- if foreground_process:find("sh") or foreground_process:find("cmd.exe") or foreground_process:find("powershell.exe") or foreground_process:find("pwsh.exe") or foreground_process:find("nu") then
+  --   -- Safe to close
+  --   initial_pane:send_text("exit\r")
+  -- else
+  --   wezterm.log_info("Active program detected. Skipping exit command for initial pane.")
+  -- end
 
   local active_tab_index = nil
   -- Recreate tabs and panes from the saved state
@@ -132,7 +131,7 @@ local function recreate_workspace(window, workspace_data)
     end
 
     if tab_data.active_tab then
-      active_tab_index = index - 1
+      active_tab_index = index
     end
 
     -- Activate the new tab before creating panes

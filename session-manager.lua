@@ -1,7 +1,7 @@
 local wezterm = require("wezterm")
 local session_manager = {}
-local os = wezterm.target_triple
 local save_dir = wezterm.home_dir .. "/.config/wezterm/"
+local os_wezterm = wezterm.target_triple
 
 function create_file_name(workspace_name)
   local prefix = "wezterm_workspace_"
@@ -84,10 +84,10 @@ end
 -- @param workspace_data table: The data structure containing the saved workspace state.
 local function recreate_workspace(window, workspace_data)
   local function extract_path_from_dir(working_directory)
-    if os == "x86_64-pc-windows-msvc" then
+    if os_wezterm == "x86_64-pc-windows-msvc" then
       -- On Windows, transform 'file:///C:/path/to/dir' to 'C:/path/to/dir'
       return working_directory:gsub("file:///", "")
-    elseif os == "x86_64-unknown-linux-gnu" then
+    elseif os_wezterm == "x86_64-unknown-linux-gnu" then
       -- On Linux, transform 'file://{computer-name}/home/{user}/path/to/dir' to '/home/{user}/path/to/dir'
       return working_directory:gsub("^.*(/home/)", "/home/")
     else

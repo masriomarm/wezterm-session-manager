@@ -1,7 +1,9 @@
 local wezterm = require("wezterm")
+local act = wezterm.action
+local mux = wezterm.mux
 local session_manager = {}
-local save_dir = wezterm.home_dir .. "/.config/wezterm/"
 local os_wezterm = wezterm.target_triple
+local save_dir = wezterm.config_dir .. "/"
 
 function create_file_name(workspace_name)
   local prefix = "wezterm_workspace_"

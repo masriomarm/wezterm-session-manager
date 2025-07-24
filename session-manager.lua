@@ -184,6 +184,7 @@ local function load_from_json_file(file_path)
   end
 
   local file_content = file:read("*a")
+  os.execute("nu -c 'touch " .. file_path .."'")
   file:close()
 
   local data = wezterm.json_parse(file_content)

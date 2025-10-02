@@ -237,7 +237,9 @@ function session_manager.save_state(window)
   if save_to_json_file(data, file_path) then
     status = 'success'
   end
-  window:toast_notification('WezTerm Session Manager', 'Workspace "' .. data.name .. '" save ' .. status, nil, 4000)
+  local message = "WezTerm Session Manager, Workspace: "  .. data.name .. '. Save ' .. status
+  window:toast_notification('WezTerm', message, nil, 4000)
+  wezterm.log_info(message)
 end
 
 return session_manager

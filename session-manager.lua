@@ -121,6 +121,7 @@ local function recreate_workspace(window, workspace_data)
   -- end
 
   local active_tab_index = nil
+  local created_tabs = {}
   -- Recreate tabs and panes from the saved state
   for index , tab_data in ipairs(workspace_data.tabs) do
     local cwd_uri = tab_data.panes[1].cwd
@@ -138,8 +139,8 @@ local function recreate_workspace(window, workspace_data)
 
     -- Activate the new tab before creating panes
     new_tab:activate()
-    -- Restore its title 
-    new_tab:set_title(tab_data.tab_title)
+    -- Title is applied after the loop, not here -- see below.
+    table.insert(created_tabs, { tab = new_tab, title = tab_data.tab_title })
 
     -- Recreate panes within this tab
     for j, pane_data in ipairs(tab_data.panes) do
@@ -165,6 +166,23 @@ local function recreate_workspace(window, workspace_data)
 
     end
   end
+  -- Apply tab titles only once every spawn and split is done.
+  --
+  -- Setting a title inline, immediately after spawn_tab(), does not
+  -- survive under a multiplexer domain: a later spawn resyncs the
+  -- client's mux mirror from the server and discards title writes that
+  -- have not been acked yet. The effect is that only the final tab of
+  -- the loop keeps its name. Verified by restoring a 6-tab workspace:
+  -- five tabs came back untitled and only the last kept its title,
+  -- while setting the same title afterwards (wezterm cli set-tab-title)
+  -- stuck immediately. Nothing follows this second pass, so the writes
+  -- are not discarded.
+  for _, entry in ipairs(created_tabs) do
+    if entry.title and entry.title ~= '' then
+      entry.tab:set_title(entry.title)
+    end
+  end
+
   if active_tab_index then
     window:perform_action(wezterm.action.ActivateTab(active_tab_index), window:active_pane())
   end

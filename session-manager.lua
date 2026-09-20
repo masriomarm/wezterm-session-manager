@@ -84,7 +84,7 @@ end
 
 --- Recreates the workspace based on the provided data.
 -- @param workspace_data table: The data structure containing the saved workspace state.
-local function recreate_workspace(window, workspace_data)
+local function recreate_workspace(window, workspace_data, on_complete)
   local function extract_path_from_dir(working_directory)
     if os_wezterm == "x86_64-pc-windows-msvc" then
       -- On Windows, transform 'file:///C:/path/to/dir' to 'C:/path/to/dir'
@@ -97,8 +97,13 @@ local function recreate_workspace(window, workspace_data)
     end
   end
 
+  local function finish(ok)
+    if on_complete then on_complete(ok) end
+  end
+
   if not workspace_data or not workspace_data.tabs then
     wezterm.log_info("Invalid or empty workspace data provided.")
+    finish(false)
     return
   end
 
@@ -107,88 +112,110 @@ local function recreate_workspace(window, workspace_data)
   if #tabs ~= 1 or #tabs[1]:panes() ~= 1 then
     wezterm.log_info(
       "Restoration can only be performed in a window with a single tab and a single pane, to prevent accidental data loss.")
+    finish(false)
     return
   end
 
-  -- Check if the foreground process is a shell
-  -- local initial_pane = window:active_pane()
-  -- local foreground_process = initial_pane:get_foreground_process_name()
-  -- if foreground_process:find("sh") or foreground_process:find("cmd.exe") or foreground_process:find("powershell.exe") or foreground_process:find("pwsh.exe") or foreground_process:find("nu") then
-  --   -- Safe to close
-  --   initial_pane:send_text("exit\r")
-  -- else
-  --   wezterm.log_info("Active program detected. Skipping exit command for initial pane.")
-  -- end
+  -- Flatten the nested tab/pane structure into a queue of single mux
+  -- operations, so the stepper below stays trivial.
+  local plan = {}
+  for index, tab_data in ipairs(workspace_data.tabs) do
+    table.insert(plan, {
+      op = 'tab',
+      index = index,
+      cwd = extract_path_from_dir(tab_data.panes[1].cwd),
+      title = tab_data.tab_title,
+      active = tab_data.active_tab,
+    })
+    for j = 2, #tab_data.panes do
+      local pane_data = tab_data.panes[j]
+      local direction = 'Right'
+      if pane_data.left == tab_data.panes[j - 1].left then
+        direction = 'Bottom'
+      end
+      table.insert(plan, {
+        op = 'split',
+        direction = direction,
+        cwd = extract_path_from_dir(pane_data.cwd),
+      })
+    end
+  end
 
-  local active_tab_index = nil
   local created_tabs = {}
-  -- Recreate tabs and panes from the saved state
-  for index , tab_data in ipairs(workspace_data.tabs) do
-    local cwd_uri = tab_data.panes[1].cwd
-    local cwd_path = extract_path_from_dir(cwd_uri)
+  local active_tab_index = nil
+  local current_tab = nil
+  local i = 0
 
-    local new_tab = window:mux_window():spawn_tab({ cwd = cwd_path })
-    if not new_tab then
-      wezterm.log_info("Failed to create a new tab.")
-      break
+  -- Titles go last: set inline right after spawn_tab they do not survive
+  -- under a mux domain, because a later spawn discards the write and only
+  -- the final tab keeps its name. One per turn, for the same reason as the
+  -- main stepper.
+  local function title_step(t)
+    local entry = created_tabs[t]
+    if not entry then
+      if active_tab_index then
+        window:perform_action(wezterm.action.ActivateTab(active_tab_index), window:active_pane())
+      end
+      wezterm.log_info("Workspace recreated with new tabs and panes based on saved state.")
+      finish(true)
+      return
+    end
+    if entry.title and entry.title ~= '' then
+      local ok, err = pcall(function() entry.tab:set_title(entry.title) end)
+      if not ok then
+        wezterm.log_info('session-manager: could not title tab ' .. t ..
+          ' ("' .. tostring(entry.title) .. '"): ' .. tostring(err))
+      end
+    end
+    wezterm.time.call_after(0.01, function() title_step(t + 1) end)
+  end
+
+  -- Each step runs inside a timer callback, so an error raised here does
+  -- NOT propagate to the caller -- it just kills the chain, leaving the
+  -- restore silently half-finished with no completion log. Observed
+  -- exactly that: a run stopped at 7 panes / 4 tabs with no error and no
+  -- "Workspace recreated". pane:split() in particular raises when the
+  -- pane has no room left to divide. So every step is guarded, and a
+  -- failed split is logged and skipped rather than aborting the restore.
+  local function step()
+    i = i + 1
+    local item = plan[i]
+
+    if not item then
+      title_step(1)
+      return
     end
 
-    if tab_data.active_tab then
-      active_tab_index = index
-    end
-
-    -- Activate the new tab before creating panes
-    new_tab:activate()
-    -- Title is applied after the loop, not here -- see below.
-    table.insert(created_tabs, { tab = new_tab, title = tab_data.tab_title })
-
-    -- Recreate panes within this tab
-    for j, pane_data in ipairs(tab_data.panes) do
-      local new_pane
-      if j == 1 then
-        new_pane = new_tab:active_pane()
-      else
-        local direction = 'Right'
-        if pane_data.left == tab_data.panes[j - 1].left then
-          direction = 'Bottom'
+    local ok, err = pcall(function()
+      if item.op == 'tab' then
+        local new_tab = window:mux_window():spawn_tab({ cwd = item.cwd })
+        if not new_tab then
+          error('spawn_tab returned nil')
         end
-
-        new_pane = new_tab:active_pane():split({
-          direction = direction,
-          cwd = extract_path_from_dir(pane_data.cwd)
+        new_tab:activate()
+        current_tab = new_tab
+        if item.active then
+          active_tab_index = item.index
+        end
+        table.insert(created_tabs, { tab = new_tab, title = item.title })
+      elseif current_tab then
+        current_tab:active_pane():split({
+          direction = item.direction,
+          cwd = item.cwd,
         })
       end
+    end)
 
-      if not new_pane then
-        wezterm.log_info("Failed to create a new pane.")
-        break
-      end
-
+    if not ok then
+      wezterm.log_info('session-manager: step ' .. i .. ' (' .. item.op ..
+        ') failed, continuing: ' .. tostring(err))
     end
-  end
-  -- Apply tab titles only once every spawn and split is done.
-  --
-  -- Setting a title inline, immediately after spawn_tab(), does not
-  -- survive under a multiplexer domain: a later spawn resyncs the
-  -- client's mux mirror from the server and discards title writes that
-  -- have not been acked yet. The effect is that only the final tab of
-  -- the loop keeps its name. Verified by restoring a 6-tab workspace:
-  -- five tabs came back untitled and only the last kept its title,
-  -- while setting the same title afterwards (wezterm cli set-tab-title)
-  -- stuck immediately. Nothing follows this second pass, so the writes
-  -- are not discarded.
-  for _, entry in ipairs(created_tabs) do
-    if entry.title and entry.title ~= '' then
-      entry.tab:set_title(entry.title)
-    end
+
+    -- Yield: one mux round-trip per event-loop turn keeps the GUI alive.
+    wezterm.time.call_after(0.01, step)
   end
 
-  if active_tab_index then
-    window:perform_action(wezterm.action.ActivateTab(active_tab_index), window:active_pane())
-  end
-
-  wezterm.log_info("Workspace recreated with new tabs and panes based on saved state.")
-  return true
+  step()
 end
 
 --- Loads data from a JSON file.
@@ -225,11 +252,14 @@ function session_manager.restore_state(window)
     return
   end
 
-  local status = 'success'
-  if recreate_workspace(window, workspace_data) ~= true then
-    status = 'fail'
-    window:toast_notification('WezTerm', 'Workspace "'.. workspace_name .. '" restore ' .. status, nil, 4000)
-  end
+  -- recreate_workspace is stepped across event-loop turns now, so it
+  -- returns immediately and reports through this callback instead of a
+  -- return value.
+  recreate_workspace(window, workspace_data, function(ok)
+    if not ok then
+      window:toast_notification('WezTerm', 'Workspace "'.. workspace_name .. '" restore fail', nil, 4000)
+    end
+  end)
 end
 
 --- Allows to select which workspace to load

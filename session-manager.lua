@@ -146,11 +146,31 @@ local function recreate_workspace(window, workspace_data, on_complete)
   local current_tab = nil
   local i = 0
 
-  -- Titles go last: set inline right after spawn_tab they do not survive
-  -- under a mux domain, because a later spawn discards the write and only
-  -- the final tab keeps its name. One per turn, for the same reason as the
-  -- main stepper.
-  local function title_step(t)
+  -- Tab titles need two passes, for two separate reasons.
+  --
+  -- They cannot be set inline right after spawn_tab: under a mux domain a
+  -- later spawn discards the write, so only the final tab keeps its name.
+  -- Hence pass 1, after every spawn and split is done.
+  --
+  -- And set_title can report success while still not sticking -- a write
+  -- issued close to other mux traffic is dropped silently. Seen with
+  -- logging in place: "titled tab 1 -> code" logged no error, yet the tab
+  -- came back empty in `wezterm cli list`, reproducibly, always the first
+  -- restored tab; on Linux more of them were lost. So pass 2 reads each
+  -- title back and re-applies only the ones that did not take. Reads are
+  -- cheap, and pass 2 usually issues no writes at all.
+  --
+  -- Both passes resolve the tab by id rather than reusing the handle
+  -- captured during the spawn loop, since those can go stale.
+  local function resolve_tab(entry)
+    if entry.tab_id then
+      local ok, fresh = pcall(function() return wezterm.mux.get_tab(entry.tab_id) end)
+      if ok and fresh then return fresh end
+    end
+    return entry.tab
+  end
+
+  local function verify_step(t)
     local entry = created_tabs[t]
     if not entry then
       if active_tab_index then
@@ -161,10 +181,34 @@ local function recreate_workspace(window, workspace_data, on_complete)
       return
     end
     if entry.title and entry.title ~= '' then
-      local ok, err = pcall(function() entry.tab:set_title(entry.title) end)
+      pcall(function()
+        local tab = resolve_tab(entry)
+        if tab:get_title() ~= entry.title then
+          wezterm.log_info('session-manager: title for tab ' .. t ..
+            ' did not stick, re-applying "' .. tostring(entry.title) .. '"')
+          tab:set_title(entry.title)
+        end
+      end)
+    end
+    wezterm.time.call_after(0.05, function() verify_step(t + 1) end)
+  end
+
+  local function title_step(t)
+    local entry = created_tabs[t]
+    if not entry then
+      verify_step(1)
+      return
+    end
+    if entry.title and entry.title ~= '' then
+      local ok, err = pcall(function()
+        resolve_tab(entry):set_title(entry.title)
+      end)
       if not ok then
         wezterm.log_info('session-manager: could not title tab ' .. t ..
           ' ("' .. tostring(entry.title) .. '"): ' .. tostring(err))
+      else
+        wezterm.log_info('session-manager: titled tab ' .. t .. ' -> "' ..
+          tostring(entry.title) .. '"')
       end
     end
     wezterm.time.call_after(0.01, function() title_step(t + 1) end)
@@ -197,7 +241,12 @@ local function recreate_workspace(window, workspace_data, on_complete)
         if item.active then
           active_tab_index = item.index
         end
-        table.insert(created_tabs, { tab = new_tab, title = item.title })
+        local ok_id, tab_id = pcall(function() return new_tab:tab_id() end)
+        table.insert(created_tabs, {
+          tab = new_tab,
+          tab_id = ok_id and tab_id or nil,
+          title = item.title,
+        })
       elseif current_tab then
         current_tab:active_pane():split({
           direction = item.direction,

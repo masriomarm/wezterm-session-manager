@@ -174,6 +174,18 @@ local function recreate_workspace(window, workspace_data, on_complete)
     local entry = created_tabs[t]
     if not entry then
       if active_tab_index then
+        -- active_tab_index is the 1-based ipairs index of the saved tab,
+        -- while ActivateTab is 0-based. That looks off by one and is not:
+        -- restore leaves the window's pre-existing tab at position 0 and
+        -- appends the restored tabs after it, so saved tab i lands at
+        -- 0-based position i and the two conventions cancel.
+        --
+        -- Verified rather than assumed: restoring a fixture whose third
+        -- saved tab is marked active leaves "zprj" focused, which is that
+        -- tab. Do not "correct" this to active_tab_index - 1 without also
+        -- handling the leftover tab -- the commented-out block above,
+        -- which would exit the initial pane, is exactly what would break
+        -- the assumption if it were ever re-enabled.
         window:perform_action(wezterm.action.ActivateTab(active_tab_index), window:active_pane())
       end
       wezterm.log_info("Workspace recreated with new tabs and panes based on saved state.")
